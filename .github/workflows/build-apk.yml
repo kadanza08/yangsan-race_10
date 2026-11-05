@@ -1,0 +1,64 @@
+name: APK 만들기
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 프로젝트 찾기 (zip이면 자동으로 압축 풀기)
+        run: |
+          F=$(find . -name settings.gradle.kts -not -path "./.git/*" -not -path "./_src/*" | head -1)
+          if [ -z "$F" ]; then
+            Z=$(find . -iname "*.zip" -not -path "./.git/*" | head -1)
+            if [ -z "$Z" ]; then
+              echo "::error::프로젝트 zip 파일이 저장소에 없어요. yangsan-race-android.zip 을 올려 주세요."
+              exit 1
+            fi
+            echo "압축 풀기: $Z"
+            mkdir -p _src && unzip -q -o "$Z" -d _src
+            F=$(find _src -name settings.gradle.kts | head -1)
+          fi
+          if [ -z "$F" ]; then echo "::error::zip 안에서 프로젝트를 찾지 못했어요."; exit 1; fi
+          ROOT=$(dirname "$F")
+          echo "ROOT=$ROOT" >> $GITHUB_ENV
+          echo "프로젝트 위치: $ROOT"
+          ls -la "$ROOT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: APK 빌드
+        working-directory: ${{ env.ROOT }}
+        run: gradle :app:assembleRelease -PversionCode=${{ github.run_number }}
+
+      - name: 파일 이름 정리
+        run: cp "$ROOT/app/build/outputs/apk/release/app-release.apk" yangsan-race.apk
+
+      - name: APK 파일 보관
+        uses: actions/upload-artifact@v4
+        with:
+          name: yangsan-race-apk
+          path: yangsan-race.apk
+
+      - name: 다운로드 페이지(Release)에 올리기
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: 양산철인 레이스 캘린더 (최신 APK)
+          body: 안드로이드 폰에서 아래 yangsan-race.apk 를 눌러 내려받고 설치하세요. (빌드 ${{ github.run_number }})
+          files: yangsan-race.apk
+          make_latest: true
